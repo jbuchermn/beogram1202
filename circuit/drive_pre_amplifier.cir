@@ -1,0 +1,24 @@
+.TITLE BJT Drive Pre-amplifier
+
+.include ./BC547.mod
+.option TEMP=22C
+
+V1 Vcc GND 12
+
+V2 Base GND PULSE(0 3 0 0.01m 0.01m 0.9m 1m)
+R1 Base Vcc 10M
+
+Q1 Collector Base GND BC547
+R3 Collector Vcc 10k
+R4 Collector S1 47k
+C1 S1 GND 47n
+R5 S1 Out 10k
+C2 Out GND 470n
+
+.tran 1us 1000ms 0
+
+.control
+run
+wrdata output.csv V(Out)
+.endc
+.END

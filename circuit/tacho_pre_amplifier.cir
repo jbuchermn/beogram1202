@@ -1,0 +1,30 @@
+.TITLE BJT Tacho Pre-amplifier
+
+.include ./BC337.mod
+.option TEMP=22C
+
+V1 Vcc GND 5
+V2 Inp GND SIN(0.0 0.15 500)
+C1 Inp Base 47n
+R1 Base Vcc 100k
+
+R2 Base GND 22k
+Q1 Collector Base Emitter BC337
+R3 Emitter GND 1k
+C2 Emitter GND 3u3
+R4 Collector Vcc 10k
+C3 Collector Out 47n
+R5 Out Vcc 100k
+R6 Out GND 33k
+
+Rterm Out Vcc 100k
+
+.tran 0.1ms 0.01s 0
+
+.control
+run
+wrdata output.csv V(Inp) V(Out)
+.endc
+
+
+.END

@@ -1,0 +1,23 @@
+.TITLE IRF540 Power amplifier
+
+.include ./irf540.txt
+.option TEMP=22C
+
+Vpower Drain GND 12
+Vin 11 GND 0.0
+R1 Source GND 100
+
+R2 11 Gate 100k
+R3 Gate Drain 300k
+
+X0 Drain Gate Source IRF540
+
+.dc Vin 0 5 0.05
+
+.control
+run
+wrdata output.csv V(Source) vs V(11)
+.endc
+
+
+.END
