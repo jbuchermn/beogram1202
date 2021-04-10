@@ -8,11 +8,12 @@ module roundedBaseCube(dim, r){
 }
 
 base_height = 3;
+base_additional_height = 2;
 
 motor_thickness = 3;
 motor_pos = [42, 78];
 motor_height = 16;
-motor_top_height = 1;
+motor_top_height = -3;
 
 trafo_thickness = 3;
 trafo_pos = [20, 7];
@@ -37,24 +38,28 @@ button_corners = [
 
 difference(){
     union(){
-        linear_extrude(height = base_height){
-            difference(){
-                polygon(polyRound([
-                    [triang_corners[0][0], triang_corners[0][1], 6],
-                    [triang_corners[1][0], triang_corners[1][1], 6],
+        difference(){
+            translate([0, 0, -base_additional_height]) linear_extrude(height = base_height + base_additional_height){
+                difference(){
+                    polygon(polyRound([
+                        [triang_corners[0][0], triang_corners[0][1], 6],
+                        [triang_corners[1][0], triang_corners[1][1], 6],
 
-                    [button_corners[0][0], button_corners[0][1], 0],
-                    [button_corners[1][0], button_corners[1][1], 0],
-                    [button_corners[2][0], button_corners[2][1], 6],
+                        [button_corners[0][0], button_corners[0][1], 0],
+                        [button_corners[1][0], button_corners[1][1], 0],
+                        [button_corners[2][0], button_corners[2][1], 6],
 
-                    [triang_corners[2][0], triang_corners[2][1], 6]
-                ]));
-                translate([0, 0]) circle(r = 3);
-                translate([100, 0]) circle(r = 3);
-                translate([37.7, 111.8]) circle(r = 6);
-                translate([37.7, 111.8 + 50]) circle(r = 48);
+                        [triang_corners[2][0], triang_corners[2][1], 6]
+                    ]));
+                    translate([0, 0]) circle(r = 3);
+                    translate([100, 0]) circle(r = 3);
+                    translate([37.7, 111.8]) circle(r = 6);
+                    translate([37.7, 111.8 + 50]) circle(r = 48);
+                }
             }
+            translate([-100, -100, -10]) cube([300, 190, 10]);
         }
+
         translate([motor_pos[0], motor_pos[1], -motor_height - motor_top_height])
             cylinder(
                 h = base_height + motor_height + motor_top_height,
@@ -125,4 +130,3 @@ difference(){
         roundedBaseCube([4, 10., 295], 2);
 
 }
-
