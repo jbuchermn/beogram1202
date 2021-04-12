@@ -89,11 +89,9 @@ class PID(object):
 
         now = _current_time()
         if dt is None:
-            dt = now - self._last_time if (now - self._last_time) else 1e-16
-        elif dt <= 0:
-            print('dt has negative value {}, skipping'.format(dt))
-            self._last_time = now
-            return self._last_output
+            dt = utime.ticks_diff(now, self._last_time)
+        if dt == 0.:
+            dt = 1e-16
 
         if self.sample_time is not None and dt < self.sample_time and self._last_output is not None:
             # Only update every sample_time seconds
