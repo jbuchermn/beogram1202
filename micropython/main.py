@@ -1,6 +1,11 @@
 import time
 import utime
 import machine
+import gc
+
+import usocket
+import uselect
+import network
 
 from PID import PID
 
@@ -8,14 +13,10 @@ from PID import PID
 OUTPUT_LIMITS = (1024., 100.)
 
 # Basis for frequency measurement in milliseconds
-TIME_SCALE_MS = 200
-
-# Measurement lowpass
-MEASURE_LP = 10
-MEASURE_LP_INERTIA = 0.9
+TIME_SCALE_MS = 100
 
 # Hz control per rpm output
-REFERENCE = 13.26
+REFERENCE = 13
 
 # State change time constants
 MANUAL_TIMEOUT_S = 10
@@ -51,56 +52,118 @@ Input setup
 pin = machine.Pin(14, machine.Pin.IN) # D5
 
 class FrequencyCounter:
-    def __init__(self, timescale_us):
+    def __init__(self, timescale_ms):
         self.callback = lambda freq: None
-        self.ts_us = timescale_us
+        self.ts_us = int(1000 * timescale_ms)
 
         self._c = 0
-        self._reset = utime.ticks_us()
+        self._reset = None
+        self._skip = False
 
-    def count(self):
+    def count(self, *args):
         self._c += 1
         self.verify()
 
     def verify(self):
         t = utime.ticks_us()
-        if utime.ticks_diff(t, self._reset) > self.ts_us:
-            freq = self._c * 1000000. / utime.ticks_diff(t, self._reset)
+        d = utime.ticks_diff(t, self._reset)
+        if self._reset is None:
+            self._reset = t
+        elif d > self.ts_us:
+            freq = 1000000 * self._c / d
+
             self._c = 0
             self._reset = t
+
             self.callback(freq)
 
-class Lowpass:
-    def __init__(self, inertia, update_every):
-        self.inertia = inertia
-        self.update_every = update_every
-        self.callback = lambda val: None
-        self.fine_callback = lambda val: None
-
-        self._v = 0
-        self._c = 0
-
-    def update(self, val):
-        self._v = self._v * self.inertia + val * (1. - self.inertia)
-        self._c += 1
-
-        if self._c == self.update_every:
-            self.callback(self._v)
-            self._c = 0
-        else:
-            self.fine_callback(self._v)
+    def start(self, pin):
+        pin.irq(trigger=machine.Pin.IRQ_RISING, handler=self.count)
 
 
-counter = FrequencyCounter(TIME_SCALE_MS * 1000 / MEASURE_LP)
-pin.irq(trigger=machine.Pin.IRQ_RISING, handler=lambda pin: counter.count())
 
-freq = Lowpass(MEASURE_LP_INERTIA, MEASURE_LP)
-counter.callback = freq.update
+counter = FrequencyCounter(TIME_SCALE_MS)
+counter.start(pin)
 
+# """
+# Server setup
+# """
+# ssid = None
+# password = None
+#
+# def load_network():
+#     global ssid
+#     global password
+#     with open('network', 'r') as inp:
+#         for r in inp:
+#             r = r.split(":")
+#             if r[0].lower() == "ssid":
+#                 ssid = r[1].lstrip()
+#             elif r[0].lower() == "password":
+#                 password = r[1].lstrip()
+#
+# try:
+#     load_network()
+# except:
+#     print("Warning! Loading network info failed")
+#
+# class Server:
+#     def __init__(self):
+#         self.connected = False
+#
+#         ap_if = network.WLAN(network.AP_IF)
+#         ap_if.active(False)
+#
+#         self.sta_if = network.WLAN(network.STA_IF)
+#         if not self.sta_if.isconnected():
+#             print('Connecting to network...')
+#             self.sta_if.active(True)
+#             self.sta_if.connect(ssid, password)
+#
+#         self.socket = None
+#
+#     def is_connected(self):
+#         return self.sta_if.isconnected()
+#
+#     def main(self, timeout):
+#         if not self.sta_if.isconnected():
+#             utime.sleep_ms(timeout)
+#             return
+#
+#         elif self.socket is None:
+#             addr = usocket.getaddrinfo('0.0.0.0', 80)[0][-1]
+#             print("Socket listening on port 80")
+#
+#             self.socket = usocket.socket()
+#             self.socket.bind(addr)
+#             self.socket.listen(1)
+#
+#         poller = uselect.poll()
+#         poller.register(self.socket, uselect.POLLIN)
+#         res = poller.poll(timeout)
+#         if res:
+#             cl, addr = self.socket.accept()
+#             print("Client connected from", addr)
+#             cl_file = cl.makefile('rwb', 0)
+#             while True:
+#                 line = cl_file.readline()
+#                 if line is None:
+#                     break
+#                 print(line)
+#             cl.send('HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\n')
+#             cl.send('Test')
+#             cl.close()
+#
+# server = Server()
+
+"""
+Controller setup
+"""
 manual_values = {
     33: 0.72,
     45: 0.90
 }
+
 
 def load_manual():
     global manual_values
@@ -117,10 +180,10 @@ def save_manual(speed, ctl):
         for k in manual_values:
             outp.write("%d: %.10f" % (k, manual_values[k]))
 
-try:
-    load_manual()
-except:
-    print("Warning! Loading manual values failed")
+# try:
+#     load_manual()
+# except:
+#     print("Warning! Loading manual values failed")
 
 """
 Main
@@ -242,15 +305,15 @@ class Main:
 
 
     def main(self):
-        freq.callback = self.update
-        if self.plot:
-            freq.fine_callback = lambda freq: print("%f,%f,%f,measure" % (
-                utime.ticks_diff(utime.ticks_ms(), self.t0) / 1000., self.ctl, freq))
+        counter.callback = self.update
 
         self.update(0)
+        gc.disable()
         while True:
-            time.sleep(TIME_SCALE_MS / MEASURE_LP / 1000.)
+            utime.sleep_ms(TIME_SCALE_MS)
+            # server.main(TIME_SCALE_MS)
             counter.verify()
+            gc.collect()
 
 
 if __name__ == '__main__':
