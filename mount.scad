@@ -8,7 +8,7 @@ module roundedBaseCube(dim, r){
 }
 
 base_height = 3;
-base_additional_height = 2;
+base_additional_height = 0;
 
 motor_thickness = 3;
 motor_pos = [42, 78];
