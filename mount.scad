@@ -18,7 +18,7 @@ motor_top_height = -3;
 trafo_thickness = 3;
 trafo_pos = [20, 7];
 trafo_size = [53.5, 44.5];
-trafo_height = 7;
+trafo_height = 6;
 trafo_top_height = 1;
 
 button_thickness = 2;
@@ -36,6 +36,7 @@ button_corners = [
     [triang_corners[1][0] + sin(36)*20 + sin(-54)*19, triang_corners[1][1] + cos(36)*20 + cos(-54)*19],
 ];
 
+rotate([180, 0, 0])
 difference(){
     union(){
         difference(){
