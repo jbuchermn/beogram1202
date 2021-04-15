@@ -18,7 +18,7 @@
 
 #include "pid.h"
 
-static const char* TAG = "main";
+/* static const char* TAG = "main"; */
 
 // Pins
 #define INPUT_PIN 14 // D5
@@ -110,10 +110,30 @@ static void main_task(void* arg){
 
     for(;;){
 #ifndef NO_UART
-
-        int len = uart_read_bytes(UART_NUM_0, uart_buffer, UART_BUF_SIZE, 20 / portTICK_RATE_MS);
-        // TODO: Do something with uart_buffer
-
+        int len = uart_read_bytes(
+                UART_NUM_0, uart_buffer, UART_BUF_SIZE, 20 / portTICK_RATE_MS);
+        int l;
+        for(l=0; l<len && uart_buffer[l]!='\n'; l++);
+        if(l < len){
+            uart_buffer[l] = 0;
+            if(l > 3){
+                if(uart_buffer[0] == 'K' &&
+                        uart_buffer[1] == 'p' &&
+                        uart_buffer[2] == '='){
+                    state.pid.K.p = atof((const char*)(uart_buffer + 3));
+                }else if(uart_buffer[0] == 'T' &&
+                        uart_buffer[1] == 'i' &&
+                        uart_buffer[2] == '='){
+                    float Ti = atof((const char*)(uart_buffer + 3));
+                    if(Ti == 0.) state.pid.K.i = 0.;
+                    else state.pid.K.i = state.pid.K.p / Ti;
+                }else if(uart_buffer[0] == 'T' &&
+                        uart_buffer[1] == 'd' &&
+                        uart_buffer[2] == '='){
+                    state.pid.K.d = state.pid.K.p * atof((const char*)(uart_buffer + 3));
+                }
+            }
+        }
 #endif
 
         uint32_t dt;
