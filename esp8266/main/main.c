@@ -18,14 +18,12 @@
 
 #include "pid.h"
 
-/* static const char* TAG = "main"; */
-
 // Pins
 #define INPUT_PIN 14 // D5
 #define OUTPUT_PIN 4 // D2
-#define STATUS_PIN0 15 // D8
-#define STATUS_PIN1 12 // D6
-#define STATUS_PIN2 13 // D7
+#define STATUS_PIN0 12 // D6
+#define STATUS_PIN1 13 // D7
+#define STATUS_PIN2 15 // D8
 
 // General constants
 #define UART_BUF_SIZE 1024
@@ -34,8 +32,8 @@
 #define FREQ_COUNTER_DT_OFF 10000
 #define FREQ_COUNTER_PERIOD_OFF 10000
 #define DRIVER_PWM_PERIOD 1000
-#define MOVING_AVG 36
-#define ACCURACY 0.02
+#define MOVING_AVG 48
+#define ACCURACY 0.01
 
 /*
  * Globals
@@ -54,6 +52,9 @@ static struct {
 static struct {
     struct pid pid;
     uint32_t setpoint;
+    float Kp;
+    float Ti;
+    float Td;
 
     uint32_t current;
     uint32_t current_avg;
@@ -97,6 +98,11 @@ static void handle_timer(void *arg){
 
 static uint8_t *uart_buffer;
 
+static void update_pid_weights(){
+    state.pid.K.p = state.Kp;
+    state.pid.K.i = state.Ti > 0. ? state.Kp / state.Ti : 0.;
+    state.pid.K.d = state.Kp * state.Td;
+}
 
 /*
  * Main
@@ -109,7 +115,8 @@ static void main_task(void* arg){
     int avg_agg = 0;
 
     for(;;){
-#ifndef NO_UART
+
+#ifdef CONFIG_BG_ENABLE_UART
         int len = uart_read_bytes(
                 UART_NUM_0, uart_buffer, UART_BUF_SIZE, 20 / portTICK_RATE_MS);
         int l;
@@ -120,17 +127,18 @@ static void main_task(void* arg){
                 if(uart_buffer[0] == 'K' &&
                         uart_buffer[1] == 'p' &&
                         uart_buffer[2] == '='){
-                    state.pid.K.p = atof((const char*)(uart_buffer + 3));
+                    state.Kp = atof((const char*)(uart_buffer + 3));
+                    update_pid_weights();
                 }else if(uart_buffer[0] == 'T' &&
                         uart_buffer[1] == 'i' &&
                         uart_buffer[2] == '='){
-                    float Ti = atof((const char*)(uart_buffer + 3));
-                    if(Ti == 0.) state.pid.K.i = 0.;
-                    else state.pid.K.i = state.pid.K.p / Ti;
+                    state.Ti = atof((const char*)(uart_buffer + 3));
+                    update_pid_weights();
                 }else if(uart_buffer[0] == 'T' &&
                         uart_buffer[1] == 'd' &&
                         uart_buffer[2] == '='){
-                    state.pid.K.d = state.pid.K.p * atof((const char*)(uart_buffer + 3));
+                    state.Td = atof((const char*)(uart_buffer + 3));
+                    update_pid_weights();
                 }
             }
         }
@@ -140,7 +148,7 @@ static void main_task(void* arg){
         if(xQueueReceive(freq_counter.evt_queue, &dt, portMAX_DELAY)){
             state.current = dt;
 
-#ifndef NO_UART
+#ifdef CONFIG_BG_ENABLE_UART
             if(avg_c%5 == 0){
                 uart_buffer[0] = 'd';
                 uart_buffer[1] = dt >> 8;
@@ -158,7 +166,7 @@ static void main_task(void* arg){
                 avg_agg = 0;
                 avg_c = 0;
             
-#ifndef NO_UART
+#ifdef CONFIG_BG_ENABLE_UART
                 uart_buffer[0] = 'a';
                 uart_buffer[1] = state.current_avg >> 8;
                 uart_buffer[2] = state.current_avg;
@@ -173,7 +181,7 @@ static void main_task(void* arg){
                         state.current_avg, esp_timer_get_time());
                 driver_update(next);
 
-#ifndef NO_UART
+#ifdef CONFIG_BG_ENABLE_UART
                 int p_next = 10000 * next;
                 uart_buffer[0] = 'f';
                 uart_buffer[1] = p_next >> 8;
@@ -195,6 +203,7 @@ void app_main(){
     // Init
     freq_counter.evt_queue = xQueueCreate(10, sizeof(uint32_t));
     freq_counter.last = 0;
+    freq_counter.off_detected = true;
     driver.current = 0;
     driver.current_pwm = DRIVER_PWM_PERIOD;
 
@@ -235,21 +244,22 @@ void app_main(){
     gpio_config(&io_conf);
 
     // Setup PID
-    state.setpoint = 2325;
-    pid_init(&state.pid,
-         // Kp
-         -0.0005,
-         // Ki
-         -0.0005 / 0.5,
-         // Kd
-         -0.0005 * 0.02,
+    // 33.3RPM -> 2395us
+    state.setpoint = 2395;
+
+    // Reasonable: Kp=-0.0001, Ti=1, Td=0
+    // Second: Kp=-0.0002, Ti=2 Td=0.5
+    state.Kp = -0.0002;
+    state.Ti = 2;
+    state.Td = 0.5;
+    pid_init(&state.pid, 1.0, 0.0, 0.0,
          // Setpoint
          state.setpoint,
          // Bounds
          0.0, 1.0);
+    update_pid_weights();
 
-#ifndef NO_UART
-
+#ifdef CONFIG_BG_ENABLE_UART
     // Setup UART
     uart_config_t uart_config = {
         .baud_rate = 74880,

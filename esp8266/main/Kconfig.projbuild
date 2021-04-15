@@ -1,0 +1,16 @@
+menu "Beogram1202-esp8266"
+    config BG_WIFI_SSID
+        string "WiFi SSID"
+        default "ssid"
+        help
+            SSID
+    config BG_WIFI_PASSWORD
+        string "WiFi Password"
+        default "password"
+        help
+            Password for WiFi connection
+
+    config BG_ENABLE_UART
+        bool "Enable UART logging and live-tuning (74880 8N1)"
+
+endmenu

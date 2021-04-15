@@ -22,15 +22,15 @@ class Runner(Thread):
                 if len(line) == 4:
                     if line[0] == ord('d'):
                         self.data['delta_t'] += [
-                            (time.time() - self.t0, int(line[1]) * 256 + int(line[2]))
+                            (time.time() - self.t0, (int(line[1]) * 256 + int(line[2])))
                         ]
                     elif line[0] == ord('a'):
                         self.data['avg_delta_t'] += [
-                            (time.time() - self.t0, int(line[1]) * 256 + int(line[2]))
+                            (time.time() - self.t0, (int(line[1]) * 256 + int(line[2])))
                         ]
                     elif line[0] == ord('f'):
                         self.data['control'] += [
-                            (time.time() - self.t0, int(line[1]) * 256 + int(line[2]))
+                            (time.time() - self.t0, (int(line[1]) * 256 + int(line[2]))/3)
                         ]
                 if self.pending_cmd is not None:
                     ser.write((self.pending_cmd + "\n").encode("ascii"))
@@ -51,7 +51,7 @@ while True:
     ax.clear()
     ax.plot(
         [d[0] for d in runner.data['delta_t']],
-        [d[1] for d in runner.data['delta_t']], 'r+')
+        [d[1] for d in runner.data['delta_t']], 'r+', alpha=.1)
     ax.plot(
         [d[0] for d in runner.data['avg_delta_t']],
         [d[1] for d in runner.data['avg_delta_t']], 'r-')
