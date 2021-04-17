@@ -19,11 +19,13 @@
 #include "pid.h"
 
 // Pins
-#define INPUT_PIN 14 // D5
-#define OUTPUT_PIN 4 // D2
-#define STATUS_PIN0 12 // D6
-#define STATUS_PIN1 13 // D7
-#define STATUS_PIN2 15 // D8
+#define INPUT_MOTOR_TACHO_PIN 14 // D5
+#define INPUT_SPEEDSWITCH_PIN 2 // D4
+#define OUTPUT_MOTOR_PIN 4 // D2
+#define OUTPUT_STATUS_PIN0 12 // D6
+#define OUTPUT_STATUS_PIN1 13 // D7
+#define OUTPUT_STATUS_PIN2 15 // D8
+#define OUTPUT_RELAY_PIN 5 // D1
 
 // General constants
 #define UART_BUF_SIZE 1024
@@ -34,6 +36,7 @@
 #define DRIVER_PWM_PERIOD 1000
 #define MOVING_AVG 48
 #define ACCURACY 0.01
+#define RELAY_TIME 500000
 
 /*
  * Globals
@@ -58,6 +61,8 @@ static struct {
 
     uint32_t current;
     uint32_t current_avg;
+
+    int relay_state;
 } state;
 
 /* Output */
@@ -93,6 +98,16 @@ static void handle_timer(void *arg){
         freq_counter.off_detected = true;
         xQueueSendFromISR(freq_counter.evt_queue, &dt, NULL);
     }
+
+    if(state.relay_state == 0){
+        gpio_set_level(OUTPUT_RELAY_PIN, false);
+
+    }else if(state.relay_state < RELAY_TIME / FREQ_COUNTER_PERIOD_OFF){
+        gpio_set_level(OUTPUT_RELAY_PIN, true);
+        state.relay_state++;
+    }else{
+        state.relay_state = 0;
+    }
 }
 
 
@@ -117,28 +132,32 @@ static void main_task(void* arg){
     for(;;){
 
 #ifdef CONFIG_BG_ENABLE_UART
-        int len = uart_read_bytes(
-                UART_NUM_0, uart_buffer, UART_BUF_SIZE, 20 / portTICK_RATE_MS);
-        int l;
-        for(l=0; l<len && uart_buffer[l]!='\n'; l++);
-        if(l < len){
-            uart_buffer[l] = 0;
-            if(l > 3){
-                if(uart_buffer[0] == 'K' &&
-                        uart_buffer[1] == 'p' &&
-                        uart_buffer[2] == '='){
-                    state.Kp = atof((const char*)(uart_buffer + 3));
-                    update_pid_weights();
-                }else if(uart_buffer[0] == 'T' &&
-                        uart_buffer[1] == 'i' &&
-                        uart_buffer[2] == '='){
-                    state.Ti = atof((const char*)(uart_buffer + 3));
-                    update_pid_weights();
-                }else if(uart_buffer[0] == 'T' &&
-                        uart_buffer[1] == 'd' &&
-                        uart_buffer[2] == '='){
-                    state.Td = atof((const char*)(uart_buffer + 3));
-                    update_pid_weights();
+        if(freq_counter.off_detected){
+            int len = uart_read_bytes(
+                    UART_NUM_0, uart_buffer, UART_BUF_SIZE, 20 / portTICK_RATE_MS);
+            int l;
+            for(l=0; l<len && uart_buffer[l]!='\n'; l++);
+            if(l < len){
+                uart_buffer[l] = 0;
+                if(l > 3){
+                    if(uart_buffer[0] == 'K' &&
+                            uart_buffer[1] == 'p' &&
+                            uart_buffer[2] == '='){
+                        state.Kp = atof((const char*)(uart_buffer + 3));
+                        update_pid_weights();
+                    }else if(uart_buffer[0] == 'T' &&
+                            uart_buffer[1] == 'i' &&
+                            uart_buffer[2] == '='){
+                        state.Ti = atof((const char*)(uart_buffer + 3));
+                        update_pid_weights();
+                    }else if(uart_buffer[0] == 'T' &&
+                            uart_buffer[1] == 'd' &&
+                            uart_buffer[2] == '='){
+                        state.Td = atof((const char*)(uart_buffer + 3));
+                        update_pid_weights();
+                    }
+                }else if(l >= 1 && uart_buffer[0] == 'l'){
+                    state.relay_state = 1;
                 }
             }
         }
@@ -148,14 +167,14 @@ static void main_task(void* arg){
         if(xQueueReceive(freq_counter.evt_queue, &dt, portMAX_DELAY)){
             state.current = dt;
 
+#ifdef DEBUG_DT
 #ifdef CONFIG_BG_ENABLE_UART
-            if(avg_c%5 == 0){
-                uart_buffer[0] = 'd';
-                uart_buffer[1] = dt >> 8;
-                uart_buffer[2] = dt;
-                uart_buffer[3] = '\n';
-                uart_write_bytes(UART_NUM_0, (const char *) uart_buffer, 4);
-            }
+            uart_buffer[0] = 'd';
+            uart_buffer[1] = dt >> 8;
+            uart_buffer[2] = dt;
+            uart_buffer[3] = '\n';
+            uart_write_bytes(UART_NUM_0, (const char *) uart_buffer, 4);
+#endif
 #endif
 
             avg_agg += dt;
@@ -190,9 +209,9 @@ static void main_task(void* arg){
                 uart_write_bytes(UART_NUM_0, (const char *) uart_buffer, 4);
 #endif
 
-                gpio_set_level(STATUS_PIN0, freq_counter.off_detected);
-                gpio_set_level(STATUS_PIN1, close);
-                gpio_set_level(STATUS_PIN2, 1);
+                gpio_set_level(OUTPUT_STATUS_PIN0, freq_counter.off_detected);
+                gpio_set_level(OUTPUT_STATUS_PIN1, close);
+                gpio_set_level(OUTPUT_STATUS_PIN2, 1);
             }
         }
     }
@@ -212,7 +231,7 @@ void app_main(){
     // Setup PWM
     driver.current = 0.0;
     driver.current_pwm = 1000;
-    static uint32_t pwm_pin = OUTPUT_PIN;
+    static uint32_t pwm_pin = OUTPUT_MOTOR_PIN;
     pwm_init(DRIVER_PWM_PERIOD, &driver.current_pwm, 1, &pwm_pin);
     pwm_set_phase(0, 0.);
     pwm_start();
@@ -220,12 +239,12 @@ void app_main(){
     // Setup interrupt
     io_conf.intr_type = GPIO_INTR_POSEDGE;
     io_conf.mode = GPIO_MODE_INPUT;
-    io_conf.pin_bit_mask = (1ULL << INPUT_PIN);
+    io_conf.pin_bit_mask = (1ULL << INPUT_MOTOR_TACHO_PIN);
     io_conf.pull_up_en = false;
     gpio_config(&io_conf);
 
     gpio_install_isr_service(0);
-    gpio_isr_handler_add(INPUT_PIN, handle_isr, NULL);
+    gpio_isr_handler_add(INPUT_MOTOR_TACHO_PIN, handle_isr, NULL);
 
     // Setup timer
     hw_timer_init(handle_timer, NULL);
@@ -236,22 +255,45 @@ void app_main(){
     io_conf.mode = GPIO_MODE_OUTPUT;
     io_conf.pull_up_en = false;
 
-    io_conf.pin_bit_mask = (1ULL << STATUS_PIN0);
+    io_conf.pin_bit_mask = (1ULL << OUTPUT_STATUS_PIN0);
     gpio_config(&io_conf);
-    io_conf.pin_bit_mask = (1ULL << STATUS_PIN1);
+    io_conf.pin_bit_mask = (1ULL << OUTPUT_STATUS_PIN1);
     gpio_config(&io_conf);
-    io_conf.pin_bit_mask = (1ULL << STATUS_PIN2);
+    io_conf.pin_bit_mask = (1ULL << OUTPUT_STATUS_PIN2);
     gpio_config(&io_conf);
+
+    // Setup speed switch pin
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    io_conf.mode = GPIO_MODE_INPUT;
+    io_conf.pull_up_en = true;
+    io_conf.pin_bit_mask = (1ULL << INPUT_SPEEDSWITCH_PIN);
+    gpio_config(&io_conf);
+
+    // Setup relay pin
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    io_conf.pull_up_en = false;
+    io_conf.pin_bit_mask = (1ULL << OUTPUT_RELAY_PIN);
+    gpio_config(&io_conf);
+
+    gpio_set_level(OUTPUT_RELAY_PIN, false);
+
+    state.relay_state = 0;
+
 
     // Setup PID
     // 33.3RPM -> 2395us
     state.setpoint = 2395;
 
+    // Before timing bugfix (uart read)
     // Reasonable: Kp=-0.0001, Ti=1, Td=0
     // Second: Kp=-0.0002, Ti=2 Td=0.5
-    state.Kp = -0.0002;
-    state.Ti = 2;
-    state.Td = 0.5;
+    //
+    // After timing bugfix
+    // First: Kp = -0.001 Ti=0.1 Td=0
+    state.Kp = -0.001;
+    state.Ti = 1;
+    state.Td = 0.0;
     pid_init(&state.pid, 1.0, 0.0, 0.0,
          // Setpoint
          state.setpoint,
