@@ -11,12 +11,12 @@ base_height = 3;
 base_additional_height = 0;
 
 motor_thickness = 3;
-motor_pos = [42, 78];
+motor_pos = [42, 75];
 motor_height = 16;
 motor_top_height = -3;
 
 trafo_thickness = 3;
-trafo_pos = [20, 7];
+trafo_pos = [20, 3];
 trafo_size = [53.5, 44.5];
 trafo_height = 6;
 trafo_top_height = 1;
@@ -64,8 +64,8 @@ difference(){
         translate([motor_pos[0], motor_pos[1], -motor_height - motor_top_height])
             cylinder(
                 h = base_height + motor_height + motor_top_height,
-                r1=motor_thickness + 20,
-                r2=motor_thickness + 20);
+                r1=motor_thickness + 19.75,
+                r2=motor_thickness + 19.75);
         translate([trafo_pos[0] - trafo_thickness, trafo_pos[1] - trafo_thickness, -trafo_height - trafo_top_height])
             cube([
                 trafo_size[0] + 2*trafo_thickness,
