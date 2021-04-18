@@ -17,6 +17,7 @@
 #include "esp_timer.h"
 
 #include "pid.h"
+#include "server.h"
 
 // Pins
 #define INPUT_MOTOR_TACHO_PIN 14 // D5
@@ -31,12 +32,14 @@
 #define UART_BUF_SIZE 1024
 
 // TT-related Constants
+#define RELAY_TIME 500000
 #define FREQ_COUNTER_DT_OFF 10000
 #define FREQ_COUNTER_PERIOD_OFF 10000
+#define FREQ_COUNTER_SAMPLE_SIZE 48
 #define DRIVER_PWM_PERIOD 1000
-#define MOVING_AVG 48
 #define ACCURACY 0.01
-#define RELAY_TIME 500000
+
+/* #define DEBUG_DT */
 
 /*
  * Globals
@@ -126,6 +129,7 @@ static void main_task(void* arg){
 
     driver_update(0.5);
 
+    state.current_avg = FREQ_COUNTER_PERIOD_OFF;
     int avg_c = 0;
     int avg_agg = 0;
 
@@ -145,19 +149,34 @@ static void main_task(void* arg){
                             uart_buffer[2] == '='){
                         state.Kp = atof((const char*)(uart_buffer + 3));
                         update_pid_weights();
+
+                        uart_buffer[0] = 'k';
+                        uart_buffer[1] = '\n';
+                        uart_write_bytes(UART_NUM_0, (const char *) uart_buffer, 2);
                     }else if(uart_buffer[0] == 'T' &&
                             uart_buffer[1] == 'i' &&
                             uart_buffer[2] == '='){
                         state.Ti = atof((const char*)(uart_buffer + 3));
                         update_pid_weights();
+
+                        uart_buffer[0] = 'k';
+                        uart_buffer[1] = '\n';
+                        uart_write_bytes(UART_NUM_0, (const char *) uart_buffer, 2);
                     }else if(uart_buffer[0] == 'T' &&
                             uart_buffer[1] == 'd' &&
                             uart_buffer[2] == '='){
                         state.Td = atof((const char*)(uart_buffer + 3));
                         update_pid_weights();
+
+                        uart_buffer[0] = 'k';
+                        uart_buffer[1] = '\n';
+                        uart_write_bytes(UART_NUM_0, (const char *) uart_buffer, 2);
                     }
                 }else if(l >= 1 && uart_buffer[0] == 'l'){
                     state.relay_state = 1;
+                    uart_buffer[0] = 'k';
+                    uart_buffer[1] = '\n';
+                    uart_write_bytes(UART_NUM_0, (const char *) uart_buffer, 2);
                 }
             }
         }
@@ -180,8 +199,8 @@ static void main_task(void* arg){
             avg_agg += dt;
             avg_c++;
 
-            if(avg_c == MOVING_AVG){
-                state.current_avg = avg_agg / MOVING_AVG;
+            if(avg_c == FREQ_COUNTER_SAMPLE_SIZE){
+                state.current_avg = avg_agg / FREQ_COUNTER_SAMPLE_SIZE;
                 avg_agg = 0;
                 avg_c = 0;
             
@@ -217,8 +236,31 @@ static void main_task(void* arg){
     }
 }
 
+static bool is_running(){
+    return !freq_counter.off_detected;
+}
+
+static void relay(){
+    if(state.relay_state == 0){
+        state.relay_state = 1;
+    }
+}
+
+static void server_connect_task(void* arg){
+
+#ifdef CONFIG_BG_ENABLE_HTTP_SERVER
+    server_connect(is_running, relay);
+#endif
+
+    vTaskDelete(NULL);
+}
+
+void do_nothing_putc1(char c){}
 
 void app_main(){
+    // TODO Disable logging to uart
+    os_install_putc1(do_nothing_putc1);
+
     // Init
     freq_counter.evt_queue = xQueueCreate(10, sizeof(uint32_t));
     freq_counter.last = 0;
@@ -282,18 +324,20 @@ void app_main(){
 
 
     // Setup PID
-    // 33.3RPM -> 2395us
-    state.setpoint = 2395;
+    // 33.3RPM -> 2330us
+    state.setpoint = 2330;
 
+    // PID Defaults
+    //
     // Before timing bugfix (uart read)
     // Reasonable: Kp=-0.0001, Ti=1, Td=0
     // Second: Kp=-0.0002, Ti=2 Td=0.5
     //
     // After timing bugfix
-    // First: Kp = -0.001 Ti=0.1 Td=0
-    state.Kp = -0.001;
-    state.Ti = 1;
-    state.Td = 0.0;
+    // First: Kp = -0.001 Ti=1 Td=0
+    state.Kp = -0.002;
+    state.Ti = 0.5;
+    state.Td = 0.;
     pid_init(&state.pid, 1.0, 0.0, 0.0,
          // Setpoint
          state.setpoint,
@@ -320,7 +364,12 @@ void app_main(){
     xTaskCreate(main_task, "main_task", 2048, NULL, 10, NULL);
 
     // Loop
+    bool initial = true;
     for(;;){
         vTaskDelay(1000 / portTICK_RATE_MS);
+        if(initial && freq_counter.off_detected){
+            xTaskCreate(server_connect_task, "server_connect_task", 2048, NULL, 10, NULL);
+        }
+        initial = false;
     }
 }

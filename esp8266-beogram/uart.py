@@ -28,6 +28,10 @@ class Runner(Thread):
             pending_dt = None
             while True:
                 line = ser.readline()
+                if line == b'k\n':
+                    print("OK")
+                    continue
+
                 while len(line) < 4:
                     line += ser.readline()
 
@@ -46,6 +50,8 @@ class Runner(Thread):
                             pending_dt = None
                         else:
                             print("Warning! Did not receive delta_t")
+                else:
+                    print("Warning! Unexpected: %s" % line)
 
                     self.save()
                 if self.pending_cmd is not None:
@@ -67,14 +73,15 @@ while True:
     ax.clear()
     ax.plot(
         [d[0] for d in runner.data['delta_t']],
-        [d[1] for d in runner.data['delta_t']], 'r+', alpha=.1)
+        [100*(2330-d[1])/2330. for d in runner.data['delta_t']], 'r+', alpha=.1)
     ax.plot(
         [d[0] for d in runner.data['delta_t_control']],
-        [d[1] for d in runner.data['delta_t_control']], 'r-')
+        [100*(2330-d[1])/2330. for d in runner.data['delta_t_control']], 'r-')
     ax.plot(
         [d[0] for d in runner.data['delta_t_control']],
-        [d[2] / 3. for d in runner.data['delta_t_control']], 'b-')
+        [d[2]/1000. - 5. for d in runner.data['delta_t_control']], 'b-')
 
+    plt.ylim((-5, 5))
     plt.draw()
     cmd = input("Update? ")
     if len(cmd.strip()) > 0:

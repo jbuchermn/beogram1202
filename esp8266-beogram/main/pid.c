@@ -47,7 +47,7 @@ pid_value_t pid_update(struct pid* pid, pid_value_t input, int64_t time){
         pid->components.i = pid->output_bounds.lower;
 
     pid_value_t d_input = input - pid->last.input;
-    pid->components.d -= pid->K.d * d_input * 100000. / dt;
+    pid->components.d = -pid->K.d * d_input * 100000. / dt;
 
     pid_value_t output = pid->components.p + pid->components.i + pid->components.d;
     if(output > pid->output_bounds.upper)
