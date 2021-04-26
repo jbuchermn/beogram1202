@@ -69,6 +69,9 @@ ax = fig.add_subplot(111)
 plt.ion()
 plt.show()
 
+setpoint = 2330.
+setpoint *= 33.3 / 45.
+
 while True:
     ax.clear()
     ax.plot(

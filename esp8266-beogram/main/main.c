@@ -21,7 +21,7 @@
 
 // Pins
 #define INPUT_MOTOR_TACHO_PIN 14 // D5
-#define INPUT_SPEEDSWITCH_PIN 2 // D4
+#define INPUT_SWITCH_PIN 2 // D4
 #define OUTPUT_MOTOR_PIN 4 // D2
 #define OUTPUT_STATUS_PIN0 12 // D6
 #define OUTPUT_STATUS_PIN1 13 // D7
@@ -35,7 +35,7 @@
 #define RELAY_TIME 500000
 #define FREQ_COUNTER_DT_OFF 10000
 #define FREQ_COUNTER_PERIOD_OFF 10000
-#define FREQ_COUNTER_SAMPLE_SIZE 48
+#define FREQ_COUNTER_SAMPLE_SIZE 24
 #define DRIVER_PWM_PERIOD 1000
 #define ACCURACY 0.01
 
@@ -66,6 +66,7 @@ static struct {
     uint32_t current_avg;
 
     int relay_state;
+    int switch_state;
 } state;
 
 /* Output */
@@ -111,6 +112,8 @@ static void handle_timer(void *arg){
     }else{
         state.relay_state = 0;
     }
+
+    state.switch_state = !gpio_get_level(INPUT_SWITCH_PIN);
 }
 
 
@@ -212,11 +215,15 @@ static void main_task(void* arg){
                 uart_write_bytes(UART_NUM_0, (const char *) uart_buffer, 4);
 #endif
                 
-                int diff = abs((int)state.current_avg - (int)state.setpoint);
-                bool close = diff * (int)(1. / ACCURACY) < state.setpoint;
+                float next = 0.;
+                bool close = false;
+                if(!state.switch_state){
+                    int diff = abs((int)state.current_avg - (int)state.setpoint);
+                    close = diff * (int)(1. / ACCURACY) < state.setpoint;
 
-                float next = pid_update(&state.pid,
-                        state.current_avg, esp_timer_get_time());
+                    next = pid_update(&state.pid,
+                            state.current_avg, esp_timer_get_time());
+                }
                 driver_update(next);
 
 #ifdef CONFIG_BG_ENABLE_UART
@@ -308,7 +315,7 @@ void app_main(){
     io_conf.intr_type = GPIO_INTR_DISABLE;
     io_conf.mode = GPIO_MODE_INPUT;
     io_conf.pull_up_en = true;
-    io_conf.pin_bit_mask = (1ULL << INPUT_SPEEDSWITCH_PIN);
+    io_conf.pin_bit_mask = (1ULL << INPUT_SWITCH_PIN);
     gpio_config(&io_conf);
 
     // Setup relay pin
@@ -326,6 +333,7 @@ void app_main(){
     // Setup PID
     // 33.3RPM -> 2330us
     state.setpoint = 2330;
+    /* state.setpoint = 2330 * 33.3 / 45; */
 
     // PID Defaults
     //
